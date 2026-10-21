@@ -1,5 +1,4 @@
-SpeechRecognition[audio]>=3.10.4
-pyttsx3>=2.98
+fastapi>=0.115
+uvicorn>=0.30
 PyAutoGUI>=0.9.54
 pyperclip>=1.9.0
-
