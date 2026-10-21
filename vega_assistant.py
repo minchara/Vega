@@ -135,7 +135,7 @@ class VegaAssistant:
                 self.events.put(("done", "Cancelled."))
                 return
             self.events.put(("status", "Transcribing speech…"))
-            # Google Web Speech performs transcription online. Audio is not saved by Mini.
+            # Google Web Speech performs transcription online. Vega does not save audio locally.
             phrase = recognizer.recognize_google(audio)
             if self.stop_event.is_set():
                 self.events.put(("done", "Cancelled."))
