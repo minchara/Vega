@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7ff">
+  <title>Vega Voice Assistant</title>
+  <style>
+    :root { color-scheme: light; --ink:#20243a; --muted:#747b94; --line:#e5e8f1; --violet:#635bdb; --paper:#fff; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at top left,#e5e9ff 0,#f5f7ff 46%,#f7f8fc 100%); color:var(--ink); font:16px/1.5 "Segoe UI",system-ui,sans-serif; }
+    main { width:min(760px,calc(100% - 32px)); margin:48px auto; }
+    .card { background:var(--paper); border:1px solid var(--line); border-radius:24px; box-shadow:0 18px 60px #28306412; padding:32px; }
+    header { display:flex; align-items:center; gap:16px; margin-bottom:24px; }
+    .orb { width:54px; height:54px; border-radius:50%; display:grid; place-items:center; color:white; background:linear-gradient(145deg,#8d8aff,#6256d8); font-size:27px; box-shadow:0 8px 25px #655be044; }
+    h1 { margin:0; font-size:27px; letter-spacing:-.03em; } .tagline { color:var(--muted); margin-top:2px; }
+    .status { display:flex; align-items:center; gap:10px; border:1px solid var(--line); background:#f9faff; padding:12px 14px; border-radius:12px; color:#454c66; }
+    .dot { width:9px; height:9px; border-radius:50%; background:#a0a7b9; flex:none; }
+    body.listening .dot { background:#6e62e8; box-shadow:0 0 0 5px #6e62e81b; animation:pulse 1.4s infinite; }
+    @keyframes pulse { 50% { box-shadow:0 0 0 9px #6e62e800; } }
+    .controls { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0 24px; }
+    button { border:1px solid var(--line); background:white; color:var(--ink); border-radius:11px; padding:11px 16px; font:600 14px "Segoe UI",sans-serif; cursor:pointer; }
+    button:hover { border-color:#b9b5fa; background:#fafaff; } button.primary { background:var(--violet); border-color:var(--violet); color:white; } button.primary:hover { background:#5149c5; } button:disabled { opacity:.45; cursor:not-allowed; }
+    .wake { display:flex; gap:12px; align-items:flex-start; background:#f8f7ff; border:1px solid #e8e5ff; border-radius:14px; padding:15px; margin-bottom:23px; }
+    .wake input { accent-color:var(--violet); width:18px; height:18px; margin:2px 0 0; }
+    .wake strong { display:block; } .wake small { display:block; color:var(--muted); margin-top:4px; }
+    label.section { display:block; font-weight:650; font-size:14px; margin:16px 0 8px; }
+    textarea { width:100%; min-height:100px; resize:vertical; border:1px solid var(--line); border-radius:12px; padding:13px; color:var(--ink); font:15px/1.5 "Segoe UI",sans-serif; outline:none; }
+    textarea:focus { border-color:#a7a1f5; box-shadow:0 0 0 3px #746be51a; }
+    .action { border:1px solid var(--line); border-radius:12px; padding:13px; background:#fbfcff; min-height:48px; color:#414861; }
+    .hint { color:var(--muted); font-size:13px; margin-top:20px; }
+    .error { color:#a33647; }
+    @media (max-width:560px) { main { margin:16px auto; } .card { padding:22px; border-radius:18px; } header { gap:12px; } h1 { font-size:23px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card" aria-label="Vega voice assistant">
+      <header><div class="orb" aria-hidden="true">✦</div><div><h1>Vega</h1><div class="tagline">Your voice-controlled computer helper</div></div></header>
+      <div class="status" role="status" aria-live="polite"><span class="dot"></span><span id="status">Ready · choose Listen to speak</span></div>
+      <div class="controls">
+        <button id="listen" class="primary">🎙 Listen</button>
+        <button id="stop" disabled>■ Stop / cancel</button>
+        <button id="run" disabled>Run command</button>
+        <button id="mute">Mute voice</button>
+      </div>
+      <label class="wake"><input type="checkbox" id="wake"><span><strong>Hands-free wake word: “Hey Vega”</strong><small>When enabled, the browser continuously sends short speech clips to its recognition service. You can switch it off any time.</small></span></label>
+      <label class="section" for="heard">I heard</label>
+      <textarea id="heard" spellcheck="false" aria-label="Recognized command">Your recognized command will appear here.</textarea>
+      <label class="section" for="action">Current action</label>
+      <div id="action" class="action">Waiting for a voice command.</div>
+      <p class="hint">Try “Open ChatGPT”, “Search for weather”, “Type hello there”, “Send”, or “Stop”. Sending and closing ask before acting.</p>
+    </section>
+  </main>
+  <script>
+    const VEGA_TOKEN = __VEGA_TOKEN__;
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const ui = {
+      status: document.querySelector('#status'), action: document.querySelector('#action'),
+      heard: document.querySelector('#heard'), listen: document.querySelector('#listen'),
+      stop: document.querySelector('#stop'), run: document.querySelector('#run'),
+      mute: document.querySelector('#mute'), wake: document.querySelector('#wake')
+    };
+    let recognition = null, listeningMode = 'idle', pending = false, wakeEnabled = false, muted = false, autoRun = false;
+    const setStatus = text => { ui.status.textContent = text; };
+    const setAction = text => { ui.action.textContent = text; };
+    const speak = text => {
+      if (muted || !('speechSynthesis' in window) || !text) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.02; window.speechSynthesis.speak(utterance);
+    };
+    function updateListening(on) {
+      document.body.classList.toggle('listening', on);
+      ui.listen.disabled = on || pending;
+      ui.stop.disabled = !on && !pending;
+    }
+    function startRecognition(mode) {
+      if (!Recognition) { setStatus('Speech recognition is not supported in this browser. Try Chrome or Edge.'); return; }
+      if (recognition) { try { recognition.stop(); } catch (_) {} }
+      const r = new Recognition();
+      recognition = r; listeningMode = mode; r.lang = 'en-US';
+      r.continuous = mode === 'wake'; r.interimResults = false; r.maxAlternatives = 1;
+      updateListening(true);
+      setStatus(mode === 'wake' ? 'Listening for “Hey Vega” · say it to wake me' : 'Listening · speak a command, then pause');
+      r.onresult = event => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (!event.results[i].isFinal) continue;
+          const phrase = event.results[i][0].transcript.trim();
+          if (mode === 'wake') {
+            const match = phrase.match(/^\s*hey\s+vega\b[\s,.:;!?—-]*(.*)$/i);
+            if (!match) continue;
+            const rest = match[1].trim();
+            listeningMode = 'idle'; try { r.stop(); } catch (_) {}
+            document.title = 'Vega is listening'; setTimeout(() => { document.title = 'Vega Voice Assistant'; }, 1200);
+            if (rest) { showTranscript(rest, true); }
+            else { setStatus('Hey Vega · what can I do for you?'); setTimeout(() => startRecognition('wake-command'), 250); }
+            return;
+          }
+          const normalizedPhrase = phrase.toLowerCase().trim().replace(/[.!?]+$/, '');
+          if (normalizedPhrase === 'stop' || normalizedPhrase === 'cancel') {
+            cancelListening(); setStatus('Stopped listening.'); return;
+          }
+          listeningMode = 'idle'; try { r.stop(); } catch (_) {}
+          showTranscript(phrase, mode === 'wake-command'); return;
+        }
+      };
+      r.onerror = event => {
+        if (event.error !== 'no-speech' && event.error !== 'aborted') setStatus('Speech recognition: ' + event.error);
+      };
+      r.onend = () => {
+        if (recognition !== r) return;
+        if (mode === 'wake' && wakeEnabled && listeningMode === 'wake') { setTimeout(() => startRecognition('wake'), 350); return; }
+        if (listeningMode === mode) listeningMode = 'idle';
+        updateListening(false);
+      };
+      try { r.start(); } catch (error) { listeningMode = 'idle'; updateListening(false); setStatus('Could not start the microphone: ' + error.message); }
+    }
+    function showTranscript(text, shouldAutoRun) {
+      ui.heard.value = text; pending = true; autoRun = shouldAutoRun;
+      ui.run.disabled = false; ui.listen.disabled = true; ui.stop.disabled = false;
+      setAction(shouldAutoRun ? 'Carrying out the recognized wake-word command…' : 'Review or edit the command, then choose Run command.');
+      setStatus(shouldAutoRun ? 'Hey Vega · command recognized' : 'Command recognized · review it before running');
+      if (shouldAutoRun) setTimeout(runCommand, 250);
+    }
+    async function runCommand() {
+      if (!pending) return;
+      let command = ui.heard.value.trim();
+      pending = false; autoRun = false; ui.run.disabled = true; ui.stop.disabled = true;
+      const low = command.toLowerCase().trim();
+      if (['send','send it','submit','submit it'].includes(low) && !window.confirm('Press Enter in the previously active app? Check its destination and content first.')) {
+        finish('Nothing was sent.'); return;
+      }
+      if (['close','close this','close window','close the window','close app','close the app'].includes(low) && !window.confirm('Close the previously active window?')) {
+        finish('Kept the window open.'); return;
+      }
+      if (/^(please\s+)?(type|write|enter|dictate)\b/i.test(command) && /\s+(and\s+)?send\s*$/i.test(command) && !window.confirm('Type and send this text in the previously active app?\n\n' + command.replace(/\s+(and\s+)?send\s*$/i,''))) {
+        finish('Nothing was sent.'); return;
+      }
+      setAction('Working in the previously active app…');
+      try {
+        const response = await fetch('/api/command', {method:'POST',headers:{'Content-Type':'application/json','X-Vega-Token':VEGA_TOKEN},body:JSON.stringify({command})});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || 'The command failed.');
+        finish(result.message || 'Done.');
+        if (result.speak) speak(result.speak);
+      } catch (error) { finish(error.message, true); }
+    }
+    function finish(message, isError=false) {
+      pending = false; updateListening(false); ui.run.disabled = true;
+      setAction(message); setStatus(message);
+      if (isError) ui.action.classList.add('error'); else ui.action.classList.remove('error');
+      speak(message);
+      if (wakeEnabled) setTimeout(() => startRecognition('wake'), 650);
+    }
+    function cancelListening() {
+      pending = false; autoRun = false;
+      if (recognition) { const r=recognition; recognition=null; listeningMode='idle'; try { r.stop(); } catch (_) {} }
+      updateListening(false); ui.run.disabled = true;
+      if (wakeEnabled) setTimeout(() => startRecognition('wake'), 400);
+    }
+    ui.listen.addEventListener('click', () => { if (pending) return; if (wakeEnabled) { wakeEnabled=false; ui.wake.checked=false; } startRecognition('manual'); });
+    ui.stop.addEventListener('click', () => { cancelListening(); setStatus('Cancelled.'); setAction('Cancelled.'); });
+    ui.run.addEventListener('click', runCommand);
+    ui.mute.addEventListener('click', () => { muted=!muted; ui.mute.textContent=muted?'Unmute voice':'Mute voice'; if(muted) window.speechSynthesis?.cancel(); });
+    ui.wake.addEventListener('change', () => {
+      if (ui.wake.checked) {
+        if (!Recognition) { ui.wake.checked=false; setStatus('Wake listening needs a browser with SpeechRecognition, such as Chrome or Edge.'); return; }
+        if (!window.confirm('Wake listening continuously sends short speech clips to your browser’s recognition service to detect “Hey Vega.” Enable it?')) { ui.wake.checked=false; return; }
+        wakeEnabled=true; startRecognition('wake');
+      } else {
+        wakeEnabled=false; cancelListening(); setStatus('Wake word off · choose Listen when you want to speak');
+      }
+    });
+    if (!Recognition) setStatus('Speech recognition unavailable · use Chrome or Edge, or type a command above.');
+  </script>
+</body>
+</html>
