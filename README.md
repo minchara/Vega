@@ -1,44 +1,35 @@
 # Vega Voice Assistant
 
-Vega is a Windows desktop assistant for voice-driven browser and keyboard tasks. It supports push-to-talk and an optional **“Hey Vega”** wake word. When the wake phrase is detected, Vega brings its window forward and processes the recognized command. Sending and closing an active window require an on-screen confirmation.
+Vega is a Windows voice assistant with a JavaScript interface (index.html) and a local Python computer-control service (app.py). It supports “Hey Vega” wake listening, browser-based speech recognition, spoken replies, and a basic set of voice commands.
 
-## Run from source
+## Run Vega
 
-1. Install Python 3.10 or newer and allow desktop apps to use your microphone in Windows Privacy settings.
-2. Install dependencies with `python -m pip install -r requirements.txt`.
-3. Launch `Run-Vega.bat` or run `python vega_assistant.py`.
+1. Install Python 3.10+ and Chrome or Edge.
+2. Double-click Run-Vega.bat. It installs the required Python packages and starts Vega in your browser.
+3. Allow microphone access if prompted. Click **Listen**, speak, review/edit the transcript, then choose **Run command**. Or enable the optional “Hey Vega” wake listener.
 
-## Build a portable Windows app
-
-Install PyInstaller with `python -m pip install pyinstaller`, then run:
-
-```powershell
-pyinstaller --noconfirm --clean --windowed --name Vega --hidden-import=speech_recognition --hidden-import=pyttsx3 --hidden-import=pyttsx3.drivers.sapi5 --hidden-import=pyautogui --hidden-import=pyperclip --hidden-import=pyaudio --collect-all=pyttsx3 --collect-all=comtypes vega_assistant.py
-```
-
-The runnable folder will be `dist/Vega`. Zip that folder to share the portable build. The receiver does not need Python installed.
-
-## Speech and privacy
-
-Vega uses Google Web Speech through SpeechRecognition for transcription. Push-to-talk audio is sent to Google's recognition service when you speak. Optional wake listening is off until enabled; when active, it continuously sends short speech clips to Google to detect “Hey Vega.” Vega does not save recordings or transcripts. Internet is required for speech recognition and web searches. Spoken responses use the installed Windows voice.
+The local service binds to 127.0.0.1:8765. Keep the Vega page open. Computer actions target the window that was active before you returned to Vega.
 
 ## Commands
 
-- “Open ChatGPT”, “open Gmail”, “open YouTube”, or “open [website]”
-- “Search for [query]”, “Google [query]”, or “look up [query]”
-- “Type [dictated text]”
-- “Read this aloud” reads the currently selected text
-- “Type [dictated text] and send” (asks before sending)
-- “Send” or “submit” (asks before pressing Enter in the active app)
-- “Open a new tab”, “go back”, “scroll down”, “copy”, “paste”, and “close”
-- “Stop” or “cancel” to cancel the current listening request
+- “Open ChatGPT”, “Open YouTube”, “Open Gmail”, or “Open [site or app name]”
+- “Search for [query]”, “Google [query]”, or “Look up [query]”
+- “Type [text]” / “Write [text]”
+- “Type [text] and send” or “Send” (asks before pressing Enter)
+- “Close” (asks before closing the previously active window)
+- “Open a new tab”, “Go back”, “Scroll down/up”, “Copy”, “Paste”, “Read this aloud”, and “Stop”
 
-Push-to-talk shows the transcript for editing before you choose **Run command**. Wake-word commands run after recognition; send and close still show a confirmation. Keyboard actions minimize Vega briefly so they reach the previously active app. Check that app before using type, paste, or send; Vega cannot confirm message delivery.
+This is a starter assistant with a built-in phrase matcher, not an AI model. Unknown “open” targets are searched on Google. The service does not run arbitrary shell commands.
 
-## Current limits
+## Speech and privacy
 
-- Wake-word detection requires internet and is opt-in; turn it off by unchecking its setting.
-- Speech recognition is online; offline recognition needs a separate model and engine.
-- The Stop button cancels speech recognition after its current microphone read returns (up to about 12 seconds); it does not interrupt a keyboard action already in progress.
-- Credentials, logs, and persistent transcript storage are not implemented.
+Speech recognition uses the browser Web Speech API, which may send audio to the browser vendor's recognition service. Wake listening is off by default and requires confirmation; while enabled, speech recognition remains active to detect “Hey Vega.” Vega does not save audio or transcripts. Stop/cancel ends voice listening. Spoken output uses the browser's speech synthesis.
 
+“Send” presses Enter and cannot verify delivery. Confirm the destination and content before approving the action. “Close” uses Alt+F4 on the previous window.
+
+## Files
+
+- index.html: JavaScript interface, speech controls, and confirmation dialogs
+- app.py: loopback-only Python service and supported computer actions
+- requirements.txt: Python dependencies
+- Run-Vega.bat: Windows setup and launcher
